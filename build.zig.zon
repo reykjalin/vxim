@@ -1,0 +1,17 @@
+.{
+    .name = .vxim,
+    .version = "0.0.0",
+    .fingerprint = 0xb2ced4bf05dda44d, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.0",
+    .dependencies = .{
+        .vaxis = .{
+            .url = "git+https://github.com/rockorager/libvaxis#7dbb9fd3122e4ffad262dd7c151d80d863b68558",
+            .hash = "vaxis-0.5.1-BWNV_LosCQAGmCCNOLljCIw6j6-yt53tji6n6rwJ2BhS",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
