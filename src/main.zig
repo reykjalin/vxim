@@ -12,124 +12,70 @@ const State = struct {
     clicks: usize = 0,
 };
 
+var state: State = .{};
+
+var debug_allocator: std.heap.DebugAllocator(.{}) = .init;
+
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer {
-        const deinit_status = gpa.deinit();
-        //fail test; can't try in defer as defer is executed after we return
-        if (deinit_status == .leak) {
-            std.log.err("memory leak", .{});
-        }
-    }
-    const alloc = gpa.allocator();
-
-    var arena_state: std.heap.ArenaAllocator = .init(alloc);
-    defer arena_state.deinit();
-
-    const arena = arena_state.allocator();
-
-    // Initialize a tty
-    var buffer: [1024]u8 = undefined;
-    var tty = try vaxis.Tty.init(&buffer);
-    defer tty.deinit();
-
-    // Initialize Vaxis
-    var vx = try vaxis.init(alloc, .{});
-    // deinit takes an optional allocator. If your program is exiting, you can
-    // choose to pass a null allocator to save some exit time.
-    defer vx.deinit(alloc, tty.writer());
-
-    // The event loop requires an intrusive init. We create an instance with
-    // stable pointers to Vaxis and our TTY, then init the instance. Doing so
-    // installs a signal handler for SIGWINCH on posix TTYs
-    //
-    // This event loop is thread safe. It reads the tty in a separate thread
-    var loop: vaxis.Loop(Event) = .{
-        .tty = &tty,
-        .vaxis = &vx,
+    const gpa, const is_debug = gpa: {
+        break :gpa switch (builtin.mode) {
+            .Debug, .ReleaseSafe => .{ debug_allocator.allocator(), true },
+            .ReleaseFast, .ReleaseSmall => .{ std.heap.smp_allocator, false },
+        };
     };
-    try loop.init();
+    defer if (is_debug) {
+        _ = debug_allocator.deinit();
+    };
 
-    // Start the read loop. This puts the terminal in raw mode and begins
-    // reading user input
-    try loop.start();
-    defer loop.stop();
+    try vxim.startLoop(Event, gpa, update);
+}
 
-    // Optionally enter the alternate screen
-    try vx.enterAltScreen(tty.writer());
+pub fn update(event: Event, ctx: vxim.UpdateContext) anyerror!vxim.UpdateResult {
+    switch (event) {
+        .key_press => |key| {
+            if (key.matches('c', .{ .ctrl = true }))
+                return .stop;
+        },
 
-    // Sends queries to terminal to detect certain features. This should always
-    // be called after entering the alt screen, if you are using the alt screen
-    try vx.queryTerminal(tty.writer(), 1 * std.time.ns_per_s);
+        .winsize => {},
 
-    // enable mouse events.
-    try vx.setMouseMode(tty.writer(), true);
-
-    var state: State = .{};
-
-    while (true) {
-        // nextEvent blocks until an event is in the queue
-        const event = loop.nextEvent();
-        // exhaustive switching ftw. Vaxis will send events if your Event enum
-        // has the fields for those events (ie "key_press", "winsize")
-        switch (event) {
-            .key_press => |key| {
-                if (key.matches('c', .{ .ctrl = true }))
-                    break;
-            },
-
-            // winsize events are sent to the application to ensure that all
-            // resizes occur in the main thread. This lets us avoid expensive
-            // locks on the screen. All applications must handle this event
-            // unless they aren't using a screen (IE only detecting features)
-            //
-            // The allocations are because we keep a copy of each cell to
-            // optimize renders. When resize is called, we allocated two slices:
-            // one for the screen, and one for our buffered screen. Each cell in
-            // the buffered screen contains an ArrayList(u8) to be able to store
-            // the grapheme for that cell. Each cell is initialized with a size
-            // of 1, which is sufficient for all of ASCII. Anything requiring
-            // more than one byte will incur an allocation on the first render
-            // after it is drawn. Thereafter, it will not allocate unless the
-            // screen is resized
-            .winsize => |ws| try vx.resize(alloc, tty.writer(), ws),
-            .mouse => |mouse| state.mouse = mouse,
-        }
-
-        // vx.window() returns the root window. This window is the size of the
-        // terminal and can spawn child windows as logical areas. Child windows
-        // cannot draw outside of their bounds
-        const win = vx.window();
-
-        // Clear the entire space because we are drawing in immediate mode.
-        // vaxis double buffers the screen. This new frame will be compared to
-        // the old and only updated cells will be drawn
-        win.clear();
-
-        const button_text = "Click Me!";
-
-        const button_x: u16 = (win.width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2);
-        const button_y: u16 = (win.height / 2) +| 1;
-
-        if (vxim.button(win, .{ .x = button_x, .y = button_y, .text = button_text, .mouse = state.mouse }) == .pressed) {
-            state.clicks +|= 1;
-        }
-
-        const text = try std.fmt.allocPrint(arena, "Clicks: {d}", .{state.clicks});
-        const text_x: u16 = (win.width / 2) -| (@as(u16, @truncate(text.len)) / 2);
-        const text_y: u16 = (win.height / 2) -| 1;
-
-        vxim.text(win, .{ .text = text, .x = text_x, .y = text_y });
-
-        // Render the screen. Using a buffered writer will offer much better
-        // performance, but is not required
-        try vx.render(tty.writer());
-
-        _ = arena_state.reset(.retain_capacity);
+        .mouse => |mouse| state.mouse = mouse,
     }
+
+    ctx.root_win.clear();
+
+    const button_text = "Click Me!";
+
+    const button_x: u16 =
+        (ctx.root_win.width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2);
+    const button_y: u16 = (ctx.root_win.height / 2) +| 1;
+
+    const button_action =
+        vxim.button(
+            ctx.root_win,
+            .{ .x = button_x, .y = button_y, .text = button_text, .mouse = state.mouse },
+        );
+
+    if (button_action == .pressed) {
+        state.clicks +|= 1;
+    }
+
+    if (button_action == .hovered or button_action == .pressed or button_action == .released)
+        ctx.vx.setMouseShape(.pointer)
+    else
+        ctx.vx.setMouseShape(.default);
+
+    const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
+    const text_x: u16 = (ctx.root_win.width / 2) -| (@as(u16, @truncate(text.len)) / 2);
+    const text_y: u16 = (ctx.root_win.height / 2) -| 1;
+
+    vxim.text(ctx.root_win, .{ .text = text, .x = text_x, .y = text_y });
+
+    return .keep_going;
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const vaxis = @import("vaxis");
 const vxim = @import("vxim");

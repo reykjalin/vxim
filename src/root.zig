@@ -60,4 +60,94 @@ pub fn text(win: vaxis.Window, opts: TextOptions) void {
     );
 }
 
+pub const UpdateResult = enum {
+    keep_going,
+    stop,
+};
+
+pub const UpdateContext = struct {
+    arena: std.mem.Allocator,
+    root_win: vaxis.Window,
+    vx: *vaxis.Vaxis,
+};
+
+pub fn startLoop(
+    comptime Event: type,
+    gpa: std.mem.Allocator,
+    updateFn: fn (evt: Event, ctx: UpdateContext) anyerror!UpdateResult,
+) !void {
+    var arena_state: std.heap.ArenaAllocator = .init(gpa);
+    defer arena_state.deinit();
+
+    const arena = arena_state.allocator();
+
+    // Initialize a tty
+    var buffer: [1024]u8 = undefined;
+    var tty = try vaxis.Tty.init(&buffer);
+    defer tty.deinit();
+
+    // Initialize Vaxis
+    var vx = try vaxis.init(gpa, .{});
+    // deinit takes an optional allocator. If your program is exiting, you can
+    // choose to pass a null allocator to save some exit time.
+    defer vx.deinit(gpa, tty.writer());
+
+    // The event loop requires an intrusive init. We create an instance with
+    // stable pointers to Vaxis and our TTY, then init the instance. Doing so
+    // installs a signal handler for SIGWINCH on posix TTYs
+    //
+    // This event loop is thread safe. It reads the tty in a separate thread
+    var loop: vaxis.Loop(Event) = .{
+        .tty = &tty,
+        .vaxis = &vx,
+    };
+    try loop.init();
+
+    // Start the read loop. This puts the terminal in raw mode and begins
+    // reading user input
+    try loop.start();
+    defer loop.stop();
+
+    // Optionally enter the alternate screen
+    try vx.enterAltScreen(tty.writer());
+
+    // Sends queries to terminal to detect certain features. This should always
+    // be called after entering the alt screen, if you are using the alt screen
+    try vx.queryTerminal(tty.writer(), 1 * std.time.ns_per_s);
+
+    // enable mouse events.
+    try vx.setMouseMode(tty.writer(), true);
+
+    while (true) {
+        // nextEvent blocks until an event is in the queue
+        const event = loop.nextEvent();
+
+        // Handle window resize automatically.
+        switch (event) {
+            .winsize => |ws| try vx.resize(gpa, tty.writer(), ws),
+            else => {},
+        }
+
+        // vx.window() returns the root window. This window is the size of the
+        // terminal and can spawn child windows as logical areas. Child windows
+        // cannot draw outside of their bounds
+        const win = vx.window();
+
+        const update_result = try updateFn(event, .{
+            .root_win = win,
+            .arena = arena,
+            .vx = &vx,
+        });
+
+        // Render the screen. Using a buffered writer will offer much better
+        // performance, but is not required
+        try vx.render(tty.writer());
+
+        _ = arena_state.reset(.retain_capacity);
+
+        if (update_result == .stop) break;
+    }
+}
+
+const std = @import("std");
 const vaxis = @import("vaxis");
