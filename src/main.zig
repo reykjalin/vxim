@@ -5,9 +5,16 @@ const Event = union(enum) {
     key_press: vaxis.Key,
     winsize: vaxis.Winsize,
     mouse: vaxis.Mouse,
+    mouse_focus: vaxis.Mouse,
 };
 
-const Vxim = vxim.Vxim(Event);
+const Widgets = enum(u32) {
+    FileMenuButton,
+    AboutButton,
+    ClickMe,
+};
+
+const Vxim = vxim.Vxim(Event, Widgets);
 
 const Menu = enum {
     File,
@@ -34,69 +41,26 @@ pub fn main() !void {
         _ = debug_allocator.deinit();
     };
 
-    var vx: Vxim = .{};
+    var vx: Vxim = .init(gpa);
+    defer vx.deinit(gpa);
 
     try vx.startLoop(gpa, update);
 }
 
-pub fn update(event: Event, ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
-    switch (event) {
+pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
+    switch (ctx.current_event) {
         .key_press => |key| {
             if (key.matches('c', .{ .ctrl = true }))
                 return .stop;
         },
+        .mouse => |mouse| state.mouse = mouse,
 
         .winsize => {},
-
-        .mouse => |mouse| state.mouse = mouse,
+        .mouse_focus => |_| {},
     }
 
     ctx.root_win.clear();
-
-    // Menu Bar
-    {
-        const menu_bar = ctx.root_win.child(.{
-            .width = ctx.root_win.width,
-            .height = 1,
-            .x_off = 0,
-            .y_off = 0,
-        });
-        // menu_bar.fill(.{ .style = .{ .bg = .{ .index = 15 } } });
-
-        const file_button = ctx.vxim.button(menu_bar, .{
-            .mouse = state.mouse,
-            .x = 0,
-            .y = 0,
-            .text = "File",
-        });
-
-        if (file_button == .pressed) {
-            state.open_menu = .File;
-        }
-    }
-
-    // File Menu
-    if (state.open_menu == .File) {
-        const file_menu = ctx.root_win.child(.{
-            .width = 7,
-            .height = 1,
-            .x_off = 0,
-            .y_off = 1,
-        });
-
-        const about_button = ctx.vxim.button(file_menu, .{
-            .mouse = state.mouse,
-            .x = 0,
-            .y = 0,
-            .text = "About",
-        });
-
-        _ = about_button;
-
-        if (file_menu.hasMouse(state.mouse) == null) {
-            if (state.mouse.?.type == .press) state.open_menu = null;
-        }
-    }
+    ctx.vx.setMouseShape(.default);
 
     // Main section of the app.
     {
@@ -117,24 +81,67 @@ pub fn update(event: Event, ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult 
 
         const button_action =
             ctx.vxim.button(
+                Widgets.ClickMe,
                 modal,
-                .{ .x = button_x, .y = button_y, .text = button_text, .mouse = state.mouse },
+                .{ .x = button_x, .y = button_y, .text = button_text },
             );
 
-        if (button_action == .pressed) {
-            state.clicks +|= 1;
-        }
+        if (button_action == .clicked) state.clicks +|= 1;
 
-        if (button_action == .hovered or button_action == .pressed or button_action == .released)
-            ctx.vx.setMouseShape(.pointer)
-        else
-            ctx.vx.setMouseShape(.default);
+        if (button_action == .hovered or button_action == .clicked) ctx.vx.setMouseShape(.pointer);
 
         const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
         const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2);
         const text_y: u16 = (modal_height / 2) -| 2;
 
         ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y });
+    }
+
+    // File Menu
+    if (state.open_menu == .File) {
+        const file_menu = ctx.root_win.child(.{
+            .width = 7,
+            .height = 1,
+            .x_off = 0,
+            .y_off = 1,
+        });
+
+        const about_button = ctx.vxim.button(
+            Widgets.AboutButton,
+            file_menu,
+            .{ .x = 0, .y = 0, .text = "About" },
+        );
+
+        if (about_button == .hovered or about_button == .clicked) ctx.vx.setMouseShape(.pointer);
+
+        if (about_button == .clicked) state.open_menu = null;
+
+        if (file_menu.hasMouse(state.mouse) == null) {
+            if (state.mouse.?.type == .press) state.open_menu = null;
+        }
+    }
+
+    // Menu Bar
+    {
+        const menu_bar = ctx.root_win.child(.{
+            .width = ctx.root_win.width,
+            .height = 1,
+            .x_off = 0,
+            .y_off = 0,
+        });
+        // menu_bar.fill(.{ .style = .{ .bg = .{ .index = 15 } } });
+
+        const file_button = ctx.vxim.button(
+            Widgets.FileMenuButton,
+            menu_bar,
+            .{ .x = 0, .y = 0, .text = "File" },
+        );
+
+        if (file_button == .clicked) {
+            state.open_menu = .File;
+        }
+
+        if (file_button == .hovered or file_button == .clicked) ctx.vx.setMouseShape(.pointer);
     }
 
     return .keep_going;

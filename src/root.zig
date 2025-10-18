@@ -1,12 +1,21 @@
-pub fn Vxim(comptime Event: type) type {
+pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
     return struct {
         const Self = @This();
+
+        current_event: Event = undefined,
+        mouse_focused_widget: ?WidgetId = null,
+
+        _tty_buffer: []u8 = undefined,
+        _tty: *vaxis.Tty,
+        _vx: *vaxis.Vaxis,
+        _loop: *vaxis.Loop(Event),
 
         pub const UpdateContext = struct {
             arena: std.mem.Allocator,
             root_win: vaxis.Window,
             vx: *vaxis.Vaxis,
             vxim: *Self,
+            current_event: Event,
         };
 
         pub const UpdateResult = enum {
@@ -22,8 +31,7 @@ pub fn Vxim(comptime Event: type) type {
         };
 
         const ButtonAction = enum {
-            pressed,
-            released,
+            clicked,
             hovered,
             none,
         };
@@ -52,12 +60,50 @@ pub fn Vxim(comptime Event: type) type {
             x: u16,
             y: u16,
             text: []const u8,
-            mouse: ?vaxis.Mouse,
             style: Style.Button = .{},
         };
 
-        pub fn button(_: *Self, win: vaxis.Window, opts: ButtonOptions) ButtonAction {
-            const child = win.child(.{
+        pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
+            self._loop.stop();
+
+            // deinit takes an optional allocator. If your program is exiting, you can
+            // choose to pass a null allocator to save some exit time.
+            self._vx.deinit(gpa, self._tty.writer());
+
+            self._tty.deinit();
+
+            gpa.destroy(self._loop);
+            gpa.destroy(self._vx);
+            gpa.destroy(self._tty);
+            gpa.free(self._tty_buffer);
+        }
+
+        pub fn init(gpa: std.mem.Allocator) Self {
+            const buffer = gpa.alloc(u8, 1024) catch @panic("Failed to allocate memory for TTY buffer");
+            const tty = gpa.create(vaxis.Tty) catch @panic("Failed to allocate memory for TTY");
+            tty.* = vaxis.Tty.init(buffer) catch @panic("Failed to initialize TTY");
+
+            const vx = gpa.create(vaxis.Vaxis) catch @panic("Failed to allocate memory for vaxis");
+            vx.* = vaxis.init(gpa, .{}) catch @panic("Failed to initialize vaxis");
+
+            const loop = gpa.create(vaxis.Loop(Event)) catch @panic("Failed to allocate memory for event loop");
+            loop.* = .{
+                .tty = tty,
+                .vaxis = vx,
+            };
+            loop.init() catch @panic("Failed to initialize event loop");
+            loop.start() catch @panic("Failed to start event loop");
+
+            return .{
+                ._tty_buffer = buffer,
+                ._tty = tty,
+                ._vx = vx,
+                ._loop = loop,
+            };
+        }
+
+        pub fn button(self: *Self, id: WidgetId, win: vaxis.Window, opts: ButtonOptions) ButtonAction {
+            const button_widget = win.child(.{
                 .x_off = opts.x,
                 .y_off = opts.y,
                 .width = @min(
@@ -67,38 +113,67 @@ pub fn Vxim(comptime Event: type) type {
                 .height = 1,
             });
 
-            const button_has_mouse = child.hasMouse(opts.mouse) != null;
-            const button_pressed = if (opts.mouse) |mouse| button_has_mouse and mouse.button == .left and mouse.type == .press else false;
-
-            if (button_pressed) {
-                child.fill(.{ .style = opts.style.pressed });
-            } else if (button_has_mouse) {
-                child.fill(.{ .style = opts.style.hovered });
-            } else {
-                child.fill(.{ .style = opts.style.default });
+            switch (self.current_event) {
+                .mouse_focus => |mouse| {
+                    if (button_widget.hasMouse(mouse)) |_| {
+                        self.mouse_focused_widget = id;
+                    }
+                },
+                else => {},
             }
 
-            const text_style: vaxis.Style = if (button_pressed)
-                opts.style.text.pressed
-            else if (button_has_mouse)
-                opts.style.text.hovered
-            else
-                opts.style.text.default;
+            const button_style = switch (self.current_event) {
+                .mouse => |mouse| style: {
+                    if (button_widget.hasMouse(mouse)) |_| {
+                        if (self.mouse_focused_widget == id and mouse.button == .left and mouse.type == .press) {
+                            break :style opts.style.pressed;
+                        }
 
-            _ = child.printSegment(
+                        break :style opts.style.hovered;
+                    }
+
+                    break :style opts.style.default;
+                },
+                else => opts.style.default,
+            };
+
+            const text_style = switch (self.current_event) {
+                .mouse => |mouse| style: {
+                    if (button_widget.hasMouse(mouse)) |_| {
+                        if (mouse.button == .left and mouse.type == .press) {
+                            break :style opts.style.text.pressed;
+                        }
+
+                        break :style opts.style.text.hovered;
+                    }
+
+                    break :style opts.style.text.default;
+                },
+                else => opts.style.text.default,
+            };
+
+            button_widget.fill(.{ .style = button_style });
+
+            _ = button_widget.printSegment(
                 .{ .text = opts.text, .style = text_style },
                 .{ .row_offset = 0, .col_offset = 1 },
             );
 
-            const button_released = if (opts.mouse) |mouse|
-                button_has_mouse and mouse.button == .left and mouse.type == .release
-            else
-                false;
+            // now decide the status to return.
+            switch (self.current_event) {
+                .mouse => |mouse| {
+                    if (button_widget.hasMouse(mouse)) |_| {
+                        if (self.mouse_focused_widget == id and mouse.button == .left and mouse.type == .press) {
+                            return .clicked;
+                        }
 
-            if (button_pressed) return .pressed;
-            if (button_released) return .released;
-            if (button_has_mouse) return .hovered;
-            return .none;
+                        return .hovered;
+                    }
+
+                    return .none;
+                },
+                else => return .none,
+            }
         }
 
         pub fn text(_: *Self, win: vaxis.Window, opts: TextOptions) void {
@@ -111,79 +186,63 @@ pub fn Vxim(comptime Event: type) type {
         pub fn startLoop(
             self: *Self,
             gpa: std.mem.Allocator,
-            updateFn: fn (evt: Event, ctx: UpdateContext) anyerror!UpdateResult,
+            updateFn: fn (ctx: UpdateContext) anyerror!UpdateResult,
         ) !void {
+            try self._vx.enterAltScreen(self._tty.writer());
+            try self._vx.queryTerminal(self._tty.writer(), 1 * std.time.ns_per_s);
+
+            try self._vx.setMouseMode(self._tty.writer(), true);
+
             var arena_state: std.heap.ArenaAllocator = .init(gpa);
             defer arena_state.deinit();
 
             const arena = arena_state.allocator();
 
-            // Initialize a tty
-            var buffer: [1024]u8 = undefined;
-            var tty = try vaxis.Tty.init(&buffer);
-            defer tty.deinit();
+            main_loop: while (true) {
+                self.current_event = self._loop.nextEvent();
 
-            // Initialize Vaxis
-            var vx = try vaxis.init(gpa, .{});
-            // deinit takes an optional allocator. If your program is exiting, you can
-            // choose to pass a null allocator to save some exit time.
-            defer vx.deinit(gpa, tty.writer());
+                const win = self._vx.window();
 
-            // The event loop requires an intrusive init. We create an instance with
-            // stable pointers to Vaxis and our TTY, then init the instance. Doing so
-            // installs a signal handler for SIGWINCH on posix TTYs
-            //
-            // This event loop is thread safe. It reads the tty in a separate thread
-            var loop: vaxis.Loop(Event) = .{
-                .tty = &tty,
-                .vaxis = &vx,
-            };
-            try loop.init();
+                switch (self.current_event) {
+                    .winsize => |ws| try self._vx.resize(gpa, self._tty.writer(), ws),
+                    .mouse => |mouse| if (mouse.type == .press and @hasField(Event, "mouse_focus")) {
 
-            // Start the read loop. This puts the terminal in raw mode and begins
-            // reading user input
-            try loop.start();
-            defer loop.stop();
+                        // Builtin widgets read directly from self.current_event so we have to make
+                        // sure that's set correctly. It's not sufficient to just pass a different
+                        // event to the `updateFn`.
+                        const original_mouse_event = self.current_event;
+                        self.current_event = .{ .mouse_focus = mouse };
 
-            // Optionally enter the alternate screen
-            try vx.enterAltScreen(tty.writer());
+                        const update_result = try updateFn(.{
+                            .root_win = win,
+                            .arena = arena,
+                            .vx = self._vx,
+                            .vxim = self,
+                            .current_event = .{ .mouse_focus = mouse },
+                        });
 
-            // Sends queries to terminal to detect certain features. This should always
-            // be called after entering the alt screen, if you are using the alt screen
-            try vx.queryTerminal(tty.writer(), 1 * std.time.ns_per_s);
+                        _ = arena_state.reset(.retain_capacity);
 
-            // enable mouse events.
-            try vx.setMouseMode(tty.writer(), true);
+                        if (update_result == .stop) break :main_loop;
 
-            while (true) {
-                // nextEvent blocks until an event is in the queue
-                const event = loop.nextEvent();
-
-                // Handle window resize automatically.
-                switch (event) {
-                    .winsize => |ws| try vx.resize(gpa, tty.writer(), ws),
+                        self.current_event = original_mouse_event;
+                    },
                     else => {},
                 }
 
-                // vx.window() returns the root window. This window is the size of the
-                // terminal and can spawn child windows as logical areas. Child windows
-                // cannot draw outside of their bounds
-                const win = vx.window();
-
-                const update_result = try updateFn(event, .{
+                const update_result = try updateFn(.{
                     .root_win = win,
                     .arena = arena,
-                    .vx = &vx,
+                    .vx = self._vx,
                     .vxim = self,
+                    .current_event = self.current_event,
                 });
 
-                // Render the screen. Using a buffered writer will offer much better
-                // performance, but is not required
-                try vx.render(tty.writer());
+                try self._vx.render(self._tty.writer());
 
                 _ = arena_state.reset(.retain_capacity);
 
-                if (update_result == .stop) break;
+                if (update_result == .stop) break :main_loop;
             }
         }
     };
