@@ -7,9 +7,16 @@ const Event = union(enum) {
     mouse: vaxis.Mouse,
 };
 
+const Vxim = vxim.Vxim(Event);
+
+const Menu = enum {
+    File,
+};
+
 const State = struct {
     mouse: ?vaxis.Mouse = null,
     clicks: usize = 0,
+    open_menu: ?Menu = null,
 };
 
 var state: State = .{};
@@ -27,10 +34,12 @@ pub fn main() !void {
         _ = debug_allocator.deinit();
     };
 
-    try vxim.startLoop(Event, gpa, update);
+    var vx: Vxim = .{};
+
+    try vx.startLoop(gpa, update);
 }
 
-pub fn update(event: Event, ctx: vxim.UpdateContext) anyerror!vxim.UpdateResult {
+pub fn update(event: Event, ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     switch (event) {
         .key_press => |key| {
             if (key.matches('c', .{ .ctrl = true }))
@@ -44,32 +53,89 @@ pub fn update(event: Event, ctx: vxim.UpdateContext) anyerror!vxim.UpdateResult 
 
     ctx.root_win.clear();
 
-    const button_text = "Click Me!";
+    // Menu Bar
+    {
+        const menu_bar = ctx.root_win.child(.{
+            .width = ctx.root_win.width,
+            .height = 1,
+            .x_off = 0,
+            .y_off = 0,
+        });
+        // menu_bar.fill(.{ .style = .{ .bg = .{ .index = 15 } } });
 
-    const button_x: u16 =
-        (ctx.root_win.width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2);
-    const button_y: u16 = (ctx.root_win.height / 2) +| 1;
+        const file_button = ctx.vxim.button(menu_bar, .{
+            .mouse = state.mouse,
+            .x = 0,
+            .y = 0,
+            .text = "File",
+        });
 
-    const button_action =
-        vxim.button(
-            ctx.root_win,
-            .{ .x = button_x, .y = button_y, .text = button_text, .mouse = state.mouse },
-        );
-
-    if (button_action == .pressed) {
-        state.clicks +|= 1;
+        if (file_button == .pressed) {
+            state.open_menu = .File;
+        }
     }
 
-    if (button_action == .hovered or button_action == .pressed or button_action == .released)
-        ctx.vx.setMouseShape(.pointer)
-    else
-        ctx.vx.setMouseShape(.default);
+    // File Menu
+    if (state.open_menu == .File) {
+        const file_menu = ctx.root_win.child(.{
+            .width = 7,
+            .height = 1,
+            .x_off = 0,
+            .y_off = 1,
+        });
 
-    const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
-    const text_x: u16 = (ctx.root_win.width / 2) -| (@as(u16, @truncate(text.len)) / 2);
-    const text_y: u16 = (ctx.root_win.height / 2) -| 1;
+        const about_button = ctx.vxim.button(file_menu, .{
+            .mouse = state.mouse,
+            .x = 0,
+            .y = 0,
+            .text = "About",
+        });
 
-    vxim.text(ctx.root_win, .{ .text = text, .x = text_x, .y = text_y });
+        _ = about_button;
+
+        if (file_menu.hasMouse(state.mouse) == null) {
+            if (state.mouse.?.type == .press) state.open_menu = null;
+        }
+    }
+
+    // Main section of the app.
+    {
+        const modal_width = @min(40, ctx.root_win.width);
+        const modal_height = @min(7, ctx.root_win.height);
+        const modal = ctx.root_win.child(.{
+            .width = modal_width,
+            .height = modal_height,
+            .x_off = ctx.root_win.width / 2 -| modal_width / 2,
+            .y_off = ctx.root_win.height / 2 -| modal_height / 2,
+            .border = .{ .where = .all },
+        });
+        const button_text = "Click Me!";
+
+        const button_x: u16 =
+            (modal_width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2);
+        const button_y: u16 = (modal_height / 2);
+
+        const button_action =
+            ctx.vxim.button(
+                modal,
+                .{ .x = button_x, .y = button_y, .text = button_text, .mouse = state.mouse },
+            );
+
+        if (button_action == .pressed) {
+            state.clicks +|= 1;
+        }
+
+        if (button_action == .hovered or button_action == .pressed or button_action == .released)
+            ctx.vx.setMouseShape(.pointer)
+        else
+            ctx.vx.setMouseShape(.default);
+
+        const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
+        const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2);
+        const text_y: u16 = (modal_height / 2) -| 2;
+
+        ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y });
+    }
 
     return .keep_going;
 }
