@@ -8,22 +8,28 @@ const Event = union(enum) {
     mouse_focus: vaxis.Mouse,
 };
 
-const Widgets = enum(u32) {
+const Widget = enum(u32) {
     FileMenuButton,
     AboutButton,
+    CloseAboutButton,
     ClickMe,
 };
 
-const Vxim = vxim.Vxim(Event, Widgets);
+const Vxim = vxim.Vxim(Event, Widget);
 
 const Menu = enum {
     File,
+};
+
+const Window = enum {
+    About,
 };
 
 const State = struct {
     mouse: ?vaxis.Mouse = null,
     clicks: usize = 0,
     open_menu: ?Menu = null,
+    open_window: ?Window = null,
 };
 
 var state: State = .{};
@@ -81,7 +87,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
         const button_action =
             ctx.vxim.button(
-                Widgets.ClickMe,
+                Widget.ClickMe,
                 modal,
                 .{ .x = button_x, .y = button_y, .text = button_text },
             );
@@ -97,6 +103,54 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y });
     }
 
+    // About window
+    if (state.open_window) |open_window| {
+        if (open_window == .About) {
+            const about_win = ctx.root_win.child(.{
+                .width = @min(ctx.root_win.width, 50),
+                .height = @min(ctx.root_win.height, 20),
+                .x_off = 10,
+                .y_off = 10,
+                .border = .{ .where = .all },
+            });
+            about_win.clear();
+
+            const title_bar = about_win.child(.{
+                .width = about_win.width,
+                .height = 1,
+            });
+
+            ctx.vxim.text(title_bar, .{ .text = "About this program" });
+
+            const close = ctx.vxim.button(Widget.CloseAboutButton, title_bar, .{ .x = title_bar.width -| 3, .text = "✕" });
+            if (close == .clicked) {
+                state.open_window = null;
+            }
+
+            if (close == .clicked or close == .hovered) ctx.vx.setMouseShape(.pointer);
+
+            const title_bar_separator = about_win.child(.{
+                .width = about_win.width,
+                .height = 1,
+                .y_off = 1,
+            });
+
+            title_bar_separator.fill(.{ .char = .{ .grapheme = "─" } });
+
+            const about_win_body = about_win.child(.{
+                .width = about_win.width,
+                .height = about_win.height -| 2,
+                .y_off = 2,
+            });
+
+            ctx.vxim.text(about_win_body, .{ .text = "VXIM v0.0.0", .y = 1 });
+            ctx.vxim.text(
+                about_win_body,
+                .{ .text = "Experimental immediate mode renderer for libvaxis", .y = 3 },
+            );
+        }
+    }
+
     // File Menu
     if (state.open_menu == .File) {
         const file_menu = ctx.root_win.child(.{
@@ -107,14 +161,17 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         });
 
         const about_button = ctx.vxim.button(
-            Widgets.AboutButton,
+            Widget.AboutButton,
             file_menu,
             .{ .x = 0, .y = 0, .text = "About" },
         );
 
         if (about_button == .hovered or about_button == .clicked) ctx.vx.setMouseShape(.pointer);
 
-        if (about_button == .clicked) state.open_menu = null;
+        if (about_button == .clicked) {
+            state.open_menu = null;
+            state.open_window = .About;
+        }
 
         if (file_menu.hasMouse(state.mouse) == null) {
             if (state.mouse.?.type == .press) state.open_menu = null;
@@ -129,10 +186,9 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
             .x_off = 0,
             .y_off = 0,
         });
-        // menu_bar.fill(.{ .style = .{ .bg = .{ .index = 15 } } });
 
         const file_button = ctx.vxim.button(
-            Widgets.FileMenuButton,
+            Widget.FileMenuButton,
             menu_bar,
             .{ .x = 0, .y = 0, .text = "File" },
         );

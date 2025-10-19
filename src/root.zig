@@ -57,9 +57,9 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         };
 
         const ButtonOptions = struct {
-            x: u16,
-            y: u16,
-            text: []const u8,
+            x: u16 = 0,
+            y: u16 = 0,
+            text: []const u8 = "",
             style: Style.Button = .{},
         };
 
@@ -179,7 +179,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         pub fn text(_: *Self, win: vaxis.Window, opts: TextOptions) void {
             _ = win.printSegment(
                 .{ .text = opts.text, .style = opts.style },
-                .{ .col_offset = opts.x, .row_offset = opts.y },
+                .{ .col_offset = opts.x, .row_offset = opts.y, .wrap = .word },
             );
         }
 
