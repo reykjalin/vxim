@@ -11,6 +11,7 @@ const Event = union(enum) {
 const Widget = enum(u32) {
     FileMenuButton,
     AboutButton,
+    AboutWindow,
     CloseAboutButton,
     ClickMe,
 };
@@ -106,46 +107,28 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     // About window
     if (state.open_window) |open_window| {
         if (open_window == .About) {
-            const about_win = ctx.root_win.child(.{
+            const about_win = ctx.vxim.window(Widget.AboutWindow, ctx.root_win, .{
                 .width = @min(ctx.root_win.width, 50),
                 .height = @min(ctx.root_win.height, 20),
-                .x_off = 10,
-                .y_off = 10,
-                .border = .{ .where = .all },
-            });
-            about_win.clear();
-
-            const title_bar = about_win.child(.{
-                .width = about_win.width,
-                .height = 1,
+                .x = 10,
+                .y = 10,
+                .title = "About this program",
             });
 
-            ctx.vxim.text(title_bar, .{ .text = "About this program" });
-
-            const close = ctx.vxim.button(Widget.CloseAboutButton, title_bar, .{ .x = title_bar.width -| 3, .text = "✕" });
+            const close = ctx.vxim.button(
+                Widget.CloseAboutButton,
+                about_win,
+                .{ .x = about_win.width / 2 -| 3, .y = about_win.height -| 1, .text = "Close" },
+            );
             if (close == .clicked) {
                 state.open_window = null;
             }
 
             if (close == .clicked or close == .hovered) ctx.vx.setMouseShape(.pointer);
 
-            const title_bar_separator = about_win.child(.{
-                .width = about_win.width,
-                .height = 1,
-                .y_off = 1,
-            });
-
-            title_bar_separator.fill(.{ .char = .{ .grapheme = "─" } });
-
-            const about_win_body = about_win.child(.{
-                .width = about_win.width,
-                .height = about_win.height -| 2,
-                .y_off = 2,
-            });
-
-            ctx.vxim.text(about_win_body, .{ .text = "VXIM v0.0.0", .y = 1 });
+            ctx.vxim.text(about_win, .{ .text = "VXIM v0.0.0", .y = 0 });
             ctx.vxim.text(
-                about_win_body,
+                about_win,
                 .{ .text = "Experimental immediate mode renderer for libvaxis", .y = 3 },
             );
         }

@@ -183,6 +183,108 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             );
         }
 
+        const WindowOptions = struct {
+            x: u16 = 0,
+            y: u16 = 0,
+            width: u16 = 10,
+            height: u16 = 10,
+            title: []const u8 = "",
+        };
+
+        pub fn window(self: *Self, id: WidgetId, win: vaxis.Window, opts: WindowOptions) vaxis.Window {
+            // 1. Get window.
+
+            const window_widget = win.child(.{
+                .x_off = opts.x,
+                .y_off = opts.y,
+                .width = opts.width,
+                .height = opts.height,
+            });
+            window_widget.clear();
+
+            // 2. Draw borders.
+
+            const top_border = window_widget.child(.{
+                .x_off = 1,
+                .width = window_widget.width -| 2,
+                .height = 1,
+            });
+            const right_border = window_widget.child(.{
+                .x_off = window_widget.width -| 1,
+                .y_off = 1,
+                .width = 1,
+                .height = window_widget.height -| 2,
+            });
+            const bottom_border = window_widget.child(.{
+                .x_off = 1,
+                .y_off = window_widget.height -| 1,
+                .width = window_widget.width -| 2,
+                .height = 1,
+            });
+            const left_border = window_widget.child(.{
+                .y_off = 1,
+                .width = 1,
+                .height = window_widget.height -| 2,
+            });
+
+            top_border.fill(.{ .char = .{ .grapheme = "─" } });
+            right_border.fill(.{ .char = .{ .grapheme = "│" } });
+            bottom_border.fill(.{ .char = .{ .grapheme = "─" } });
+            left_border.fill(.{ .char = .{ .grapheme = "│" } });
+
+            window_widget.writeCell(0, 0, .{ .char = .{ .grapheme = "┌" } });
+            window_widget.writeCell(window_widget.width -| 1, 0, .{ .char = .{ .grapheme = "┐" } });
+            window_widget.writeCell(
+                window_widget.width -| 1,
+                window_widget.height -| 1,
+                .{ .char = .{ .grapheme = "┘" } },
+            );
+            window_widget.writeCell(0, window_widget.height -| 1, .{ .char = .{ .grapheme = "└" } });
+
+            const inner_window = window_widget.child(.{
+                .x_off = 1,
+                .y_off = 1,
+                .width = window_widget.width -| 2,
+                .height = window_widget.height -| 2,
+            });
+
+            // 3. Set focus.
+
+            switch (self.current_event) {
+                .mouse_focus => |mouse| {
+                    if (window_widget.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                },
+                .mouse => |mouse| {
+                    if (window_widget.hasMouse(mouse)) |_| self._vx.setMouseShape(.default);
+                },
+                else => {},
+            }
+
+            // If we're not asking for a title, then just return the inside of the window.
+
+            if (std.mem.eql(u8, opts.title, "")) return inner_window;
+
+            // Otherwise, include the title bar.
+
+            const title_bar = inner_window.child(.{ .height = 1 });
+
+            self.text(title_bar, .{ .text = opts.title });
+
+            const title_bar_separator = window_widget.child(.{ .y_off = 2, .height = 1 });
+            title_bar_separator.fill(.{ .char = .{ .grapheme = "─" } });
+            title_bar_separator.writeCell(0, 0, .{ .char = .{ .grapheme = "├" } });
+            title_bar_separator.writeCell(
+                window_widget.width -| 1,
+                0,
+                .{ .char = .{ .grapheme = "┤" } },
+            );
+
+            return inner_window.child(.{
+                .y_off = 2,
+                .height = inner_window.height -| 2,
+            });
+        }
+
         pub fn startLoop(
             self: *Self,
             gpa: std.mem.Allocator,
