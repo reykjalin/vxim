@@ -28,6 +28,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             y: u16 = 0,
             text: []const u8 = "",
             style: vaxis.Style = .{},
+            allow_selection: bool = false,
         };
 
         const ButtonAction = enum {
@@ -119,6 +120,9 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                         self.mouse_focused_widget = id;
                     }
                 },
+                .mouse => |mouse| {
+                    if (button_widget.hasMouse(mouse)) |_| self._vx.setMouseShape(.pointer);
+                },
                 else => {},
             }
 
@@ -176,11 +180,29 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             }
         }
 
-        pub fn text(_: *Self, win: vaxis.Window, opts: TextOptions) void {
+        pub fn text(self: *Self, win: vaxis.Window, opts: TextOptions) void {
             _ = win.printSegment(
                 .{ .text = opts.text, .style = opts.style },
                 .{ .col_offset = opts.x, .row_offset = opts.y, .wrap = .word },
             );
+
+            if (!opts.allow_selection) return;
+
+            // If text can be selected we show the right mouse shape and allow selecting text.
+
+            const result_box = win.child(.{
+                .x_off = opts.x,
+                .y_off = opts.y,
+                .width = @truncate(opts.text.len),
+                .height = 1,
+            });
+
+            switch (self.current_event) {
+                .mouse => |mouse| {
+                    if (result_box.hasMouse(mouse)) |_| self._vx.setMouseShape(.text);
+                },
+                else => {},
+            }
         }
 
         const WindowOptions = struct {
@@ -301,7 +323,11 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             const arena = arena_state.allocator();
 
             main_loop: while (true) {
+                defer _ = arena_state.reset(.retain_capacity);
+
                 self.current_event = self._loop.nextEvent();
+
+                self._vx.setMouseShape(.default);
 
                 const win = self._vx.window();
 
@@ -341,8 +367,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                 });
 
                 try self._vx.render(self._tty.writer());
-
-                _ = arena_state.reset(.retain_capacity);
 
                 if (update_result == .stop) break :main_loop;
             }

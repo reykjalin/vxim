@@ -67,7 +67,6 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     }
 
     ctx.root_win.clear();
-    ctx.vx.setMouseShape(.default);
 
     // Main section of the app.
     {
@@ -95,13 +94,11 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
         if (button_action == .clicked) state.clicks +|= 1;
 
-        if (button_action == .hovered or button_action == .clicked) ctx.vx.setMouseShape(.pointer);
-
         const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
         const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2);
         const text_y: u16 = (modal_height / 2) -| 2;
 
-        ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y });
+        ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y, .allow_selection = true });
     }
 
     // About window
@@ -124,12 +121,14 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
                 state.open_window = null;
             }
 
-            if (close == .clicked or close == .hovered) ctx.vx.setMouseShape(.pointer);
-
-            ctx.vxim.text(about_win, .{ .text = "VXIM v0.0.0", .y = 0 });
+            ctx.vxim.text(about_win, .{ .text = "VXIM v0.0.0", .allow_selection = true });
             ctx.vxim.text(
                 about_win,
-                .{ .text = "Experimental immediate mode renderer for libvaxis", .y = 3 },
+                .{
+                    .text = "Experimental immediate mode renderer for libvaxis",
+                    .y = 3,
+                    .allow_selection = true,
+                },
             );
         }
     }
@@ -148,8 +147,6 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
             file_menu,
             .{ .x = 0, .y = 0, .text = "About" },
         );
-
-        if (about_button == .hovered or about_button == .clicked) ctx.vx.setMouseShape(.pointer);
 
         if (about_button == .clicked) {
             state.open_menu = null;
@@ -179,8 +176,6 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         if (file_button == .clicked) {
             state.open_menu = .File;
         }
-
-        if (file_button == .hovered or file_button == .clicked) ctx.vx.setMouseShape(.pointer);
     }
 
     return .keep_going;
