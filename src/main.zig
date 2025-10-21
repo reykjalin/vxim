@@ -12,6 +12,7 @@ const Widget = enum(u32) {
     FileMenuButton,
     AboutButton,
     AboutWindow,
+    QuitButton,
     CloseAboutButton,
     ClickMe,
 };
@@ -87,7 +88,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
         const button_action =
             ctx.vxim.button(
-                Widget.ClickMe,
+                .ClickMe,
                 modal,
                 .{ .x = button_x, .y = button_y, .text = button_text },
             );
@@ -104,7 +105,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     // About window
     if (state.open_window) |open_window| {
         if (open_window == .About) {
-            const about_win = ctx.vxim.window(Widget.AboutWindow, ctx.root_win, .{
+            const about_win = ctx.vxim.window(.AboutWindow, ctx.root_win, .{
                 .width = @min(ctx.root_win.width, 50),
                 .height = @min(ctx.root_win.height, 20),
                 .x = 10,
@@ -113,7 +114,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
             });
 
             const close = ctx.vxim.button(
-                Widget.CloseAboutButton,
+                .CloseAboutButton,
                 about_win,
                 .{ .x = about_win.width / 2 -| 3, .y = about_win.height -| 1, .text = "Close" },
             );
@@ -137,21 +138,29 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     if (state.open_menu == .File) {
         const file_menu = ctx.root_win.child(.{
             .width = 7,
-            .height = 1,
+            .height = 2,
             .x_off = 0,
             .y_off = 1,
         });
 
         const about_button = ctx.vxim.button(
-            Widget.AboutButton,
+            .AboutButton,
             file_menu,
-            .{ .x = 0, .y = 0, .text = "About" },
+            .{ .text = "About" },
         );
 
         if (about_button == .clicked) {
             state.open_menu = null;
             state.open_window = .About;
         }
+
+        const quit_button = ctx.vxim.button(
+            .QuitButton,
+            file_menu,
+            .{ .y = 1, .text = "Quit" },
+        );
+
+        if (quit_button == .clicked) return .stop;
 
         if (file_menu.hasMouse(state.mouse) == null) {
             if (state.mouse.?.type == .press) state.open_menu = null;
@@ -168,7 +177,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         });
 
         const file_button = ctx.vxim.button(
-            Widget.FileMenuButton,
+            .FileMenuButton,
             menu_bar,
             .{ .x = 0, .y = 0, .text = "File" },
         );
