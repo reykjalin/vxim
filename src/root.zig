@@ -99,11 +99,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             self._arena_state.deinit();
 
             self._loop.stop();
-
-            // deinit takes an optional allocator. If your program is exiting, you can
-            // choose to pass a null allocator to save some exit time.
             self._vx.deinit(gpa, self._tty.writer());
-
             self._tty.deinit();
 
             gpa.destroy(self._loop);
@@ -113,9 +109,9 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         }
 
         pub fn init(gpa: std.mem.Allocator) Self {
-            const buffer = gpa.alloc(u8, 1024) catch @panic("Failed to allocate memory for TTY buffer");
+            const tty_buffer = gpa.alloc(u8, 1024) catch @panic("Failed to allocate memory for TTY buffer");
             const tty = gpa.create(vaxis.Tty) catch @panic("Failed to allocate memory for TTY");
-            tty.* = vaxis.Tty.init(buffer) catch @panic("Failed to initialize TTY");
+            tty.* = vaxis.Tty.init(tty_buffer) catch @panic("Failed to initialize TTY");
 
             const vx = gpa.create(vaxis.Vaxis) catch @panic("Failed to allocate memory for vaxis");
             vx.* = vaxis.init(gpa, .{}) catch @panic("Failed to initialize vaxis");
@@ -130,7 +126,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
             return .{
                 ._arena_state = .init(gpa),
-                ._tty_buffer = buffer,
+                ._tty_buffer = tty_buffer,
                 ._tty = tty,
                 ._vx = vx,
                 ._loop = loop,
