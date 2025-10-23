@@ -4,14 +4,15 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
         current_event: Event = undefined,
         mouse_focused_widget: ?WidgetId = null,
+        open_menu: ?WidgetId = null,
 
         _tty_buffer: []u8 = undefined,
         _tty: *vaxis.Tty,
         _vx: *vaxis.Vaxis,
         _loop: *vaxis.Loop(Event),
+        _arena_state: std.heap.ArenaAllocator,
 
         pub const UpdateContext = struct {
-            arena: std.mem.Allocator,
             root_win: vaxis.Window,
             vx: *vaxis.Vaxis,
             vxim: *Self,
@@ -65,6 +66,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         };
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
+            self._arena_state.deinit();
+
             self._loop.stop();
 
             // deinit takes an optional allocator. If your program is exiting, you can
@@ -96,11 +99,16 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             loop.start() catch @panic("Failed to start event loop");
 
             return .{
+                ._arena_state = .init(gpa),
                 ._tty_buffer = buffer,
                 ._tty = tty,
                 ._vx = vx,
                 ._loop = loop,
             };
+        }
+
+        pub fn arena(self: *Self) std.mem.Allocator {
+            return self._arena_state.allocator();
         }
 
         pub fn button(self: *Self, id: WidgetId, win: vaxis.Window, opts: ButtonOptions) ButtonAction {
@@ -300,6 +308,100 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             return inner_window;
         }
 
+        const MenuItem = struct {
+            name: []const u8,
+            id: WidgetId,
+        };
+
+        const Menu = struct {
+            name: []const u8,
+            items: []const MenuItem,
+            id: WidgetId,
+        };
+
+        const MenuBarAction = struct {
+            id: WidgetId,
+            action: ButtonAction,
+        };
+
+        pub fn menuBar(self: *Self, win: vaxis.Window, menus: []const Menu) ?MenuBarAction {
+            const menu_bar = win.child(.{ .height = 1 });
+
+            var menu_button_offset: u16 = 0;
+
+            var action: ?MenuBarAction = null;
+
+            for (menus) |menu| {
+                const menu_width = widest_item_width: {
+                    var width: usize = 0;
+                    for (menu.items) |item| width = @max(width, item.name.len + 2);
+
+                    break :widest_item_width width;
+                };
+
+                const menu_button = self.button(menu.id, menu_bar, .{
+                    .x = menu_button_offset,
+                    .text = menu.name,
+                });
+
+                const menu_area = win.child(.{
+                    .x_off = menu_button_offset,
+                    .y_off = 1,
+                    .width = @min(menu_width, win.width),
+                    .height = @min(menu.items.len, win.height),
+                });
+
+                // Draw the drop-down menu, if one is open.
+
+                if (self.open_menu == menu.id) {
+                    for (menu.items, 0..) |item, idx| {
+                        const button_text_writer_buf = self.arena().alloc(u8, menu_width) catch
+                            @panic("failed to allocate for aligning menu items");
+                        var button_text_writer: std.Io.Writer = .fixed(button_text_writer_buf);
+
+                        // Make sure button covers the entire menu and make the text left aligned.
+
+                        button_text_writer.alignBuffer(item.name, menu_width, .left, ' ') catch
+                            @panic("failed to center menu item");
+                        const button_text = button_text_writer.buffered();
+
+                        const button_action = self.button(
+                            item.id,
+                            menu_area,
+                            .{ .y = @truncate(idx), .text = button_text },
+                        );
+
+                        // If the button is clicked, we close the menu.
+                        if (button_action == .clicked) self.open_menu = null;
+                        // If any interaction is done with the button we use that as the return
+                        // value for this function to communicate which menu was interacted with.
+                        if (button_action != .none)
+                            action = .{ .id = item.id, .action = button_action };
+                    }
+
+                    // Close the drop-down menu if you left-click outside it.
+
+                    switch (self.current_event) {
+                        .mouse => |mouse| if (mouse.button == .left and mouse.type == .press) {
+                            if (menu_button != .clicked and menu_area.hasMouse(mouse) == null)
+                                self.open_menu = null;
+                        },
+                        else => {},
+                    }
+                }
+
+                const should_toggle_menu = menu_button == .clicked;
+
+                if (should_toggle_menu) {
+                    self.open_menu = if (self.open_menu == menu.id) null else menu.id;
+                }
+
+                menu_button_offset +|= @as(u16, @truncate(menu.name.len)) + 2;
+            }
+
+            return action;
+        }
+
         pub fn startLoop(
             self: *Self,
             gpa: std.mem.Allocator,
@@ -310,13 +412,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
             try self._vx.setMouseMode(self._tty.writer(), true);
 
-            var arena_state: std.heap.ArenaAllocator = .init(gpa);
-            defer arena_state.deinit();
-
-            const arena = arena_state.allocator();
-
             main_loop: while (true) {
-                defer _ = arena_state.reset(.retain_capacity);
+                defer _ = self._arena_state.reset(.retain_capacity);
 
                 self.current_event = self._loop.nextEvent();
 
@@ -336,13 +433,12 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
                         const update_result = try updateFn(.{
                             .root_win = win,
-                            .arena = arena,
                             .vx = self._vx,
                             .vxim = self,
                             .current_event = .{ .mouse_focus = mouse },
                         });
 
-                        _ = arena_state.reset(.retain_capacity);
+                        _ = self._arena_state.reset(.retain_capacity);
 
                         if (update_result == .stop) break :main_loop;
 
@@ -353,7 +449,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
                 const update_result = try updateFn(.{
                     .root_win = win,
-                    .arena = arena,
                     .vx = self._vx,
                     .vxim = self,
                     .current_event = self.current_event,

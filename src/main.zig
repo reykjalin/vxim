@@ -9,7 +9,7 @@ const Event = union(enum) {
 };
 
 const Widget = enum(u32) {
-    FileMenuButton,
+    FileMenu,
     AboutButton,
     AboutWindow,
     QuitButton,
@@ -95,7 +95,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
         if (button_action == .clicked) state.clicks +|= 1;
 
-        const text = try std.fmt.allocPrint(ctx.arena, "Clicks: {d}", .{state.clicks});
+        const text = try std.fmt.allocPrint(ctx.vxim.arena(), "Clicks: {d}", .{state.clicks});
         const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2);
         const text_y: u16 = (modal_height / 2) -| 2;
 
@@ -113,18 +113,28 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
                 .title = "About this program",
             });
 
+            const about_body = about_win.child(.{
+                .x_off = 1,
+                .y_off = 1,
+                .width = about_win.width -| 2,
+                .height = about_win.height -| 2,
+            });
+
             const close = ctx.vxim.button(
                 .CloseAboutButton,
-                about_win,
-                .{ .x = about_win.width / 2 -| 3, .y = about_win.height -| 1, .text = "Close" },
+                about_body,
+                .{ .x = about_body.width / 2 -| 3, .y = about_body.height -| 1, .text = "Close" },
             );
             if (close == .clicked) {
                 state.open_window = null;
             }
 
-            ctx.vxim.text(about_win, .{ .text = "VXIM v0.0.0", .allow_selection = true });
             ctx.vxim.text(
-                about_win,
+                about_body,
+                .{ .text = "VXIM v0.0.0", .allow_selection = true },
+            );
+            ctx.vxim.text(
+                about_body,
                 .{
                     .text = "Experimental immediate mode renderer for libvaxis",
                     .y = 3,
@@ -134,57 +144,20 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         }
     }
 
-    // File Menu
-    if (state.open_menu == .File) {
-        const file_menu = ctx.root_win.child(.{
-            .width = 7,
-            .height = 2,
-            .x_off = 0,
-            .y_off = 1,
-        });
+    const menuAction = ctx.vxim.menuBar(ctx.root_win, &.{
+        .{
+            .name = "File",
+            .id = .FileMenu,
+            .items = &.{
+                .{ .name = "About", .id = .AboutButton },
+                .{ .name = "Quit", .id = .QuitButton },
+            },
+        },
+    });
 
-        const about_button = ctx.vxim.button(
-            .AboutButton,
-            file_menu,
-            .{ .text = "About" },
-        );
-
-        if (about_button == .clicked) {
-            state.open_menu = null;
-            state.open_window = .About;
-        }
-
-        const quit_button = ctx.vxim.button(
-            .QuitButton,
-            file_menu,
-            .{ .y = 1, .text = "Quit" },
-        );
-
-        if (quit_button == .clicked) return .stop;
-
-        if (file_menu.hasMouse(state.mouse) == null) {
-            if (state.mouse.?.type == .press) state.open_menu = null;
-        }
-    }
-
-    // Menu Bar
-    {
-        const menu_bar = ctx.root_win.child(.{
-            .width = ctx.root_win.width,
-            .height = 1,
-            .x_off = 0,
-            .y_off = 0,
-        });
-
-        const file_button = ctx.vxim.button(
-            .FileMenuButton,
-            menu_bar,
-            .{ .x = 0, .y = 0, .text = "File" },
-        );
-
-        if (file_button == .clicked) {
-            state.open_menu = .File;
-        }
+    if (menuAction) |action| {
+        if (action.id == .AboutButton and action.action == .clicked) state.open_window = .About;
+        if (action.id == .QuitButton and action.action == .clicked) return .stop;
     }
 
     return .keep_going;
