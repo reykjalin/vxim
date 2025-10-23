@@ -106,10 +106,10 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     if (state.open_window) |open_window| {
         if (open_window == .About) {
             const about_win = ctx.vxim.window(.AboutWindow, ctx.root_win, .{
-                .width = @min(ctx.root_win.width, 50),
-                .height = @min(ctx.root_win.height, 20),
+                .width = @min(ctx.root_win.width, 35),
+                .height = @min(ctx.root_win.height, 11),
                 .x = 10,
-                .y = 10,
+                .y = 2,
                 .title = "About this program",
             });
 
@@ -126,13 +126,14 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
             ctx.vxim.text(
                 about_body,
-                .{ .text = "VXIM v0.0.0", .allow_selection = true },
+                // Extra space to center text in window.
+                .{ .text = "          VXIM v0.0.0", .allow_selection = true },
             );
             ctx.vxim.text(
                 about_body,
                 .{
                     .text = "Experimental immediate mode renderer for libvaxis",
-                    .y = 3,
+                    .y = 2,
                     .allow_selection = true,
                 },
             );
