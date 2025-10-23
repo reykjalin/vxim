@@ -224,6 +224,28 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             });
             window_widget.clear();
 
+            // 2. Set focus.
+
+            switch (self.current_event) {
+                .mouse_focus => |mouse| {
+                    if (window_widget.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                },
+                .mouse => |mouse| {
+                    if (window_widget.hasMouse(mouse)) |_| self._vx.setMouseShape(.default);
+                },
+                else => {},
+            }
+
+            const has_title = !std.mem.eql(u8, opts.title, "");
+
+            const inner_window =
+                window_widget.child(.{
+                    .x_off = 1,
+                    .y_off = 1,
+                    .width = window_widget.width -| 2,
+                    .height = window_widget.height -| 2,
+                });
+
             // 2. Draw borders.
 
             const top_border = window_widget.child(.{
@@ -263,48 +285,19 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             );
             window_widget.writeCell(0, window_widget.height -| 1, .{ .char = .{ .grapheme = "└" } });
 
-            const inner_window = window_widget.child(.{
-                .x_off = 1,
-                .y_off = 1,
-                .width = window_widget.width -| 2,
-                .height = window_widget.height -| 2,
-            });
-
-            // 3. Set focus.
-
-            switch (self.current_event) {
-                .mouse_focus => |mouse| {
-                    if (window_widget.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
-                },
-                .mouse => |mouse| {
-                    if (window_widget.hasMouse(mouse)) |_| self._vx.setMouseShape(.default);
-                },
-                else => {},
-            }
-
-            // If we're not asking for a title, then just return the inside of the window.
-
-            if (std.mem.eql(u8, opts.title, "")) return inner_window;
+            if (!has_title) return inner_window;
 
             // Otherwise, include the title bar.
 
-            const title_bar = inner_window.child(.{ .height = 1 });
+            const title_bar = window_widget.child(.{
+                .x_off = 1,
+                .width = window_widget.width -| 2,
+                .height = 1,
+            });
 
             self.text(title_bar, .{ .text = opts.title });
 
-            const title_bar_separator = window_widget.child(.{ .y_off = 2, .height = 1 });
-            title_bar_separator.fill(.{ .char = .{ .grapheme = "─" } });
-            title_bar_separator.writeCell(0, 0, .{ .char = .{ .grapheme = "├" } });
-            title_bar_separator.writeCell(
-                window_widget.width -| 1,
-                0,
-                .{ .char = .{ .grapheme = "┤" } },
-            );
-
-            return inner_window.child(.{
-                .y_off = 2,
-                .height = inner_window.height -| 2,
-            });
+            return inner_window;
         }
 
         pub fn startLoop(

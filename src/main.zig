@@ -15,6 +15,7 @@ const Widget = enum(u32) {
     QuitButton,
     CloseAboutButton,
     ClickMe,
+    CounterModal,
 };
 
 const Vxim = vxim.Vxim(Event, Widget);
@@ -73,12 +74,11 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     {
         const modal_width = @min(40, ctx.root_win.width);
         const modal_height = @min(7, ctx.root_win.height);
-        const modal = ctx.root_win.child(.{
+        const modal = ctx.vxim.window(.CounterModal, ctx.root_win, .{
             .width = modal_width,
             .height = modal_height,
-            .x_off = ctx.root_win.width / 2 -| modal_width / 2,
-            .y_off = ctx.root_win.height / 2 -| modal_height / 2,
-            .border = .{ .where = .all },
+            .x = ctx.root_win.width / 2 -| modal_width / 2,
+            .y = ctx.root_win.height / 2 -| modal_height / 2,
         });
         const button_text = "Click Me!";
 
