@@ -178,7 +178,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             const text_style = switch (self.current_event) {
                 .mouse => |mouse| style: {
                     if (button_widget.hasMouse(mouse)) |_| {
-                        if (mouse.button == .left and mouse.type == .press) {
+                        if (self.mouse_focused_widget == id and mouse.button == .left and mouse.type == .press) {
                             break :style opts.style.text.pressed;
                         }
 
