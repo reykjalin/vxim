@@ -24,20 +24,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             stop,
         };
 
-        pub const TextOptions = struct {
-            x: u16 = 0,
-            y: u16 = 0,
-            text: []const u8 = "",
-            style: vaxis.Style = .{},
-            allow_selection: bool = false,
-        };
-
-        const ButtonAction = enum {
-            clicked,
-            hovered,
-            none,
-        };
-
         pub const Style = struct {
             pub const Button = struct {
                 default: vaxis.Style = .{ .bg = .{ .index = 12 } },
@@ -58,11 +44,55 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             };
         };
 
+        const ButtonAction = enum {
+            clicked,
+            hovered,
+            none,
+        };
+
         const ButtonOptions = struct {
             x: u16 = 0,
             y: u16 = 0,
             text: []const u8 = "",
             style: Style.Button = .{},
+        };
+
+        pub const TextOptions = struct {
+            x: u16 = 0,
+            y: u16 = 0,
+            text: []const u8 = "",
+            style: vaxis.Style = .{},
+            allow_selection: bool = false,
+        };
+
+        const MenuItem = struct {
+            name: []const u8,
+            id: WidgetId,
+        };
+
+        const Menu = struct {
+            name: []const u8,
+            items: []const MenuItem,
+            id: WidgetId,
+        };
+
+        const MenuBarAction = struct {
+            id: WidgetId,
+            action: ButtonAction,
+        };
+
+        const WindowOptions = struct {
+            x: u16 = 0,
+            y: u16 = 0,
+            width: u16 = 10,
+            height: u16 = 10,
+            title: []const u8 = "",
+        };
+
+        const PaddingOpts = union(enum) {
+            all: u16,
+            hv: struct { horizontal: u16, vertical: u16 },
+            each: struct { top: u16, right: u16, bottom: u16, left: u16 },
         };
 
         pub fn deinit(self: *Self, gpa: std.mem.Allocator) void {
@@ -213,13 +243,28 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             }
         }
 
-        const WindowOptions = struct {
-            x: u16 = 0,
-            y: u16 = 0,
-            width: u16 = 10,
-            height: u16 = 10,
-            title: []const u8 = "",
-        };
+        pub fn padding(_: *Self, win: vaxis.Window, opts: PaddingOpts) vaxis.Window {
+            switch (opts) {
+                .all => |space| return win.child(.{
+                    .x_off = space,
+                    .y_off = space,
+                    .width = win.width -| (2 * space),
+                    .height = win.height -| (2 * space),
+                }),
+                .hv => |space| return win.child(.{
+                    .x_off = space.horizontal,
+                    .y_off = space.vertical,
+                    .width = win.width -| (2 * space.horizontal),
+                    .height = win.height -| (2 * space.vertical),
+                }),
+                .each => |space| return win.child(.{
+                    .x_off = space.left,
+                    .y_off = space.top,
+                    .width = win.width -| space.left -| space.right,
+                    .height = win.height -| space.top -| space.bottom,
+                }),
+            }
+        }
 
         pub fn window(self: *Self, id: WidgetId, win: vaxis.Window, opts: WindowOptions) vaxis.Window {
             // 1. Get window.
@@ -307,22 +352,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
             return inner_window;
         }
-
-        const MenuItem = struct {
-            name: []const u8,
-            id: WidgetId,
-        };
-
-        const Menu = struct {
-            name: []const u8,
-            items: []const MenuItem,
-            id: WidgetId,
-        };
-
-        const MenuBarAction = struct {
-            id: WidgetId,
-            action: ButtonAction,
-        };
 
         pub fn menuBar(self: *Self, win: vaxis.Window, menus: []const Menu) ?MenuBarAction {
             const menu_bar = win.child(.{ .height = 1 });

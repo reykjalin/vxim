@@ -113,12 +113,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
                 .title = "About this program",
             });
 
-            const about_body = about_win.child(.{
-                .x_off = 1,
-                .y_off = 1,
-                .width = about_win.width -| 2,
-                .height = about_win.height -| 2,
-            });
+            const about_body = ctx.vxim.padding(about_win, .{ .all = 1 });
 
             const close = ctx.vxim.button(
                 .CloseAboutButton,
