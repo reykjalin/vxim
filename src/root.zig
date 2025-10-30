@@ -5,6 +5,9 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         current_event: Event = undefined,
         mouse_focused_widget: ?WidgetId = null,
         open_menu: ?WidgetId = null,
+        last_mouse: ?vaxis.Mouse = null,
+
+        widget_being_dragged: ?WidgetId = null,
 
         _tty_buffer: []u8 = undefined,
         _tty: *vaxis.Tty,
@@ -82,8 +85,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         };
 
         const WindowOptions = struct {
-            x: u16 = 0,
-            y: u16 = 0,
+            x: *u16,
+            y: *u16,
             width: u16 = 10,
             height: u16 = 10,
             title: []const u8 = "",
@@ -266,8 +269,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             // 1. Get window.
 
             const window_widget = win.child(.{
-                .x_off = opts.x,
-                .y_off = opts.y,
+                .x_off = opts.x.*,
+                .y_off = opts.y.*,
                 .width = opts.width,
                 .height = opts.height,
             });
@@ -345,6 +348,34 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             });
 
             self.text(title_bar, .{ .text = opts.title });
+
+            // Drag handling
+
+            if (self.mouse_focused_widget == id) switch (self.current_event) {
+                .mouse_focus => |mouse| if (top_border.hasMouse(mouse)) |_| {
+                    self.widget_being_dragged = id;
+                },
+                .mouse => |mouse| handle_drag: {
+                    if (self.widget_being_dragged == id and mouse.button == .left and mouse.type == .drag) {
+                        if (self.last_mouse) |last_mouse| {
+                            if (mouse.col == last_mouse.col and mouse.row == last_mouse.row) break :handle_drag;
+
+                            const is_moving_right = mouse.col > last_mouse.col;
+                            const is_moving_down = mouse.row > last_mouse.row;
+
+                            if (is_moving_right) opts.x.* +|= mouse.col - last_mouse.col;
+                            if (!is_moving_right) opts.x.* -|= last_mouse.col - mouse.col;
+
+                            if (is_moving_down) opts.y.* +|= mouse.row - last_mouse.row;
+                            if (!is_moving_down) opts.y.* -|= last_mouse.row - mouse.row;
+                        }
+                    }
+
+                    if (self.widget_being_dragged == id and mouse.button == .left and mouse.type == .release)
+                        self.widget_being_dragged = null;
+                },
+                else => {},
+            };
 
             return inner_window;
         }
@@ -479,6 +510,61 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                     .current_event = self.current_event,
                 });
 
+                switch (self.current_event) {
+                    .mouse => |mouse| self.last_mouse = mouse,
+                    else => {},
+                }
+
+                // Debug info
+                if (builtin.mode == .Debug) {
+                    const last_cursor_text = try std.fmt.allocPrint(self.arena(), "Last cursor: ({d},{d})", .{
+                        if (self.last_mouse) |m| m.col else 0,
+                        if (self.last_mouse) |m| m.row else 0,
+                    });
+                    const focused_widget_text = try std.fmt.allocPrint(
+                        self.arena(),
+                        "Focused widget: {?}",
+                        .{self.mouse_focused_widget},
+                    );
+                    const widget_being_dragged_text = try std.fmt.allocPrint(
+                        self.arena(),
+                        "Dragging: {?}",
+                        .{self.widget_being_dragged},
+                    );
+
+                    const widest_text = @max(last_cursor_text.len, focused_widget_text.len, widget_being_dragged_text.len);
+
+                    const dbg_win = win.child(.{
+                        .x_off = win.width -| 2 -| @as(u16, @truncate(widest_text)),
+                        .y_off = 1,
+                        .width = @as(u16, @truncate(widest_text)) +| 2,
+                        .height = 5,
+                        .border = .{ .where = .all },
+                    });
+
+                    self.text(dbg_win, .{
+                        .x = dbg_win.width -| @as(u16, @truncate(last_cursor_text.len)),
+                        .y = 0,
+                        .text = last_cursor_text,
+                    });
+                    self.text(dbg_win, .{
+                        .x = dbg_win.width -| @as(u16, @truncate(focused_widget_text.len)),
+                        .y = 1,
+                        .text = focused_widget_text,
+                    });
+                    self.text(dbg_win, .{
+                        .x = dbg_win.width -| @as(u16, @truncate(widget_being_dragged_text.len)),
+                        .y = 2,
+                        .text = widget_being_dragged_text,
+                    });
+
+                    self.text(win, .{
+                        .x = @as(u16, @intCast(dbg_win.x_off)),
+                        .y = @as(u16, @intCast(dbg_win.y_off)) -| 1,
+                        .text = "Debug Info",
+                    });
+                }
+
                 try self._vx.render(self._tty.writer());
 
                 if (update_result == .stop) break :main_loop;
@@ -488,4 +574,5 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 }
 
 const std = @import("std");
+const builtin = @import("builtin");
 const vaxis = @import("vaxis");

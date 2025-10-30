@@ -33,6 +33,7 @@ const State = struct {
     clicks: usize = 0,
     open_menu: ?Menu = null,
     open_window: ?Window = null,
+    about_window_pos: struct { x: u16, y: u16 } = .{ .x = 0, .y = 1 },
 };
 
 var state: State = .{};
@@ -74,11 +75,13 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
     {
         const modal_width = @min(40, ctx.root_win.width);
         const modal_height = @min(7, ctx.root_win.height);
+        var x = ctx.root_win.width / 2 -| modal_width / 2;
+        var y = ctx.root_win.height / 2 -| modal_height / 2;
         const modal = ctx.vxim.window(.CounterModal, ctx.root_win, .{
             .width = modal_width,
             .height = modal_height,
-            .x = ctx.root_win.width / 2 -| modal_width / 2,
-            .y = ctx.root_win.height / 2 -| modal_height / 2,
+            .x = &x,
+            .y = &y,
         });
         const button_text = "Click Me!";
 
@@ -108,8 +111,8 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
             const about_win = ctx.vxim.window(.AboutWindow, ctx.root_win, .{
                 .width = @min(ctx.root_win.width, 35),
                 .height = @min(ctx.root_win.height, 11),
-                .x = 10,
-                .y = 2,
+                .x = &state.about_window_pos.x,
+                .y = &state.about_window_pos.y,
                 .title = "About this program",
             });
 
