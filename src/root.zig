@@ -352,8 +352,14 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             // Drag handling
 
             if (self.mouse_focused_widget == id) switch (self.current_event) {
-                .mouse_focus => |mouse| if (top_border.hasMouse(mouse)) |_| {
-                    self.widget_being_dragged = id;
+                .mouse_focus => |mouse| {
+                    if (top_border.hasMouse(mouse)) |_| {
+                        self.widget_being_dragged = id;
+                    }
+                    if (mouse.mods.alt == true) {
+                        if (window_widget.hasMouse(mouse)) |_|
+                            self.widget_being_dragged = id;
+                    }
                 },
                 .mouse => |mouse| handle_drag: {
                     if (self.widget_being_dragged == id and mouse.button == .left and mouse.type == .drag) {
