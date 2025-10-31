@@ -16,6 +16,8 @@ const Widget = enum(u32) {
     CloseAboutButton,
     ClickMe,
     CounterModal,
+    ScrollDemoWindow,
+    ScrollDemoContent,
 };
 
 const Vxim = vxim.Vxim(Event, Widget);
@@ -34,6 +36,7 @@ const State = struct {
     open_menu: ?Menu = null,
     open_window: ?Window = null,
     about_window_pos: struct { x: u16, y: u16 } = .{ .x = 0, .y = 1 },
+    scroll_offset: usize = 0,
 };
 
 var state: State = .{};
@@ -103,6 +106,34 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         const text_y: u16 = (modal_height / 2) -| 2;
 
         ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y, .allow_selection = true });
+    }
+
+    // Scroll demo
+    {
+        var scroll_window_pos: struct { x: u16, y: u16 } = .{ .x = 4, .y = 2 };
+        const scroll_window = ctx.vxim.window(.ScrollDemoWindow, ctx.root_win, .{
+            .x = &scroll_window_pos.x,
+            .y = &scroll_window_pos.y,
+            .height = 12,
+            .width = 20,
+            .title = "Scroll demo",
+        });
+        const scroll_body = ctx.vxim.scrollArea(.ScrollDemoContent, scroll_window, .{
+            .content_height = 50,
+            .content_width = 10,
+            .content_offset = &state.scroll_offset,
+        });
+
+        // It's sufficient to draw from the top of the scroll area.
+        for (state.scroll_offset..50) |i| {
+            // No need to draw outside the scroll area.
+            if (i > state.scroll_offset + scroll_body.height) break;
+
+            ctx.vxim.text(scroll_body, .{
+                .y = @as(u16, @intCast(i -| state.scroll_offset)),
+                .text = try std.fmt.allocPrint(ctx.vxim.arena(), "line: {d}", .{i + 1}),
+            });
+        }
     }
 
     // About window

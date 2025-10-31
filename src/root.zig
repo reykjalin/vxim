@@ -92,6 +92,17 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             title: []const u8 = "",
         };
 
+        const ScrollAreaOptions = struct {
+            x: u16 = 0,
+            y: u16 = 0,
+            width: ?u16 = null,
+            height: ?u16 = null,
+            content_height: usize,
+            content_width: usize,
+            /// how far down you've scrolled in rows.
+            content_offset: *usize,
+        };
+
         const PaddingOpts = union(enum) {
             all: u16,
             hv: struct { horizontal: u16, vertical: u16 },
@@ -263,6 +274,35 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                     .height = win.height -| space.top -| space.bottom,
                 }),
             }
+        }
+
+        pub fn scrollArea(self: *Self, id: WidgetId, parent: vaxis.Window, opts: ScrollAreaOptions) vaxis.Window {
+            const body = parent.child(.{
+                .x_off = opts.x,
+                .y_off = opts.y,
+                .width = opts.width orelse parent.width,
+                .height = opts.height orelse parent.height,
+            });
+
+            switch (self.current_event) {
+                .mouse_focus => |mouse| {
+                    if (body.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                },
+                .mouse => |mouse| if (self.mouse_focused_widget == id) {
+                    if (mouse.button == .wheel_up and mouse.type == .press) {
+                        opts.content_offset.* -|= 1;
+                    }
+                    if (mouse.button == .wheel_down and mouse.type == .press) {
+                        // We always want at least 1 row of the content to be visible.
+                        const max_offset = opts.content_height -| 1;
+                        const new_offset = opts.content_offset.* +| 1;
+                        opts.content_offset.* = @min(new_offset, max_offset);
+                    }
+                },
+                else => {},
+            }
+
+            return body;
         }
 
         pub fn window(self: *Self, id: WidgetId, win: vaxis.Window, opts: WindowOptions) vaxis.Window {
@@ -523,10 +563,16 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
                 // Debug info
                 if (builtin.mode == .Debug) {
-                    const last_cursor_text = try std.fmt.allocPrint(self.arena(), "Last cursor: ({d},{d})", .{
-                        if (self.last_mouse) |m| m.col else 0,
-                        if (self.last_mouse) |m| m.row else 0,
-                    });
+                    const last_cursor_text = try std.fmt.allocPrint(
+                        self.arena(),
+                        "Last cursor: ({d},{d}) ({?}) ({?})",
+                        .{
+                            if (self.last_mouse) |m| m.col else 0,
+                            if (self.last_mouse) |m| m.row else 0,
+                            if (self.last_mouse) |m| m.button else null,
+                            if (self.last_mouse) |m| m.type else null,
+                        },
+                    );
                     const focused_widget_text = try std.fmt.allocPrint(
                         self.arena(),
                         "Focused widget: {?}",
