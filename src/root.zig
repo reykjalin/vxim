@@ -2,12 +2,21 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
     return struct {
         const Self = @This();
 
+        const InternalElement = enum {
+            scroll_thumb,
+        };
+
+        const Id = union(enum) {
+            external: WidgetId,
+            internal: struct { widget: WidgetId, element: InternalElement },
+        };
+
         current_event: Event = undefined,
         mouse_focused_widget: ?WidgetId = null,
         open_menu: ?WidgetId = null,
         last_mouse: ?vaxis.Mouse = null,
 
-        widget_being_dragged: ?WidgetId = null,
+        widget_being_dragged: ?Id = null,
 
         _tty_buffer: []u8 = undefined,
         _tty: *vaxis.Tty,
@@ -277,32 +286,84 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         }
 
         pub fn scrollArea(self: *Self, id: WidgetId, parent: vaxis.Window, opts: ScrollAreaOptions) vaxis.Window {
-            const body = parent.child(.{
+            const area = parent.child(.{
                 .x_off = opts.x,
                 .y_off = opts.y,
                 .width = opts.width orelse parent.width,
                 .height = opts.height orelse parent.height,
             });
 
+            const thumb_height = area.height * area.height / opts.content_height;
+            const thumb_offset = opts.content_offset.* * area.height / opts.content_height;
+
+            const thumb = area.child(.{
+                .x_off = area.width -| 1,
+                .y_off = @intCast(thumb_offset),
+                .width = 1,
+                .height = @intCast(@max(thumb_height, 1)),
+            });
+
+            const thumb_grapheme = switch (self.current_event) {
+                .mouse => |mouse| if (thumb.hasMouse(mouse)) |_| "█" else "▐",
+                else => "▐",
+            };
+
+            thumb.fill(.{ .char = .{ .grapheme = thumb_grapheme } });
+
             switch (self.current_event) {
                 .mouse_focus => |mouse| {
-                    if (body.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                    if (area.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                    if (thumb.hasMouse(mouse)) |_| self.widget_being_dragged = .{
+                        .internal = .{ .widget = id, .element = .scroll_thumb },
+                    };
                 },
-                .mouse => |mouse| if (self.mouse_focused_widget == id) {
+                .mouse => |mouse| if (self.mouse_focused_widget == id) handle_scroll: {
+                    const max_offset = opts.content_height -| 1;
+
                     if (mouse.button == .wheel_up and mouse.type == .press) {
                         opts.content_offset.* -|= 1;
                     }
                     if (mouse.button == .wheel_down and mouse.type == .press) {
                         // We always want at least 1 row of the content to be visible.
-                        const max_offset = opts.content_height -| 1;
                         const new_offset = opts.content_offset.* +| 1;
+                        opts.content_offset.* = @min(new_offset, max_offset);
+                    }
+
+                    const is_thumb_being_dragged = if (self.widget_being_dragged) |w| switch (w) {
+                        .external => false,
+                        .internal => |widget| self.mouse_focused_widget == id and
+                            widget.widget == id and
+                            widget.element == .scroll_thumb,
+                    } else false;
+
+                    // Handle dragging the scroll thumb if appropriate
+                    if (!is_thumb_being_dragged or mouse.button != .left or mouse.type != .drag)
+                        break :handle_scroll;
+                    if (self.last_mouse) |last_mouse| {
+                        const step_size = @max(opts.content_height / area.height, 1);
+
+                        const dragging_down = mouse.row > last_mouse.row;
+
+                        const mouse_movement = if (dragging_down)
+                            mouse.row -| last_mouse.row
+                        else
+                            last_mouse.row -| mouse.row;
+
+                        const new_offset = if (dragging_down)
+                            opts.content_offset.* +| (mouse_movement * step_size)
+                        else
+                            opts.content_offset.* -| (mouse_movement * step_size);
+
                         opts.content_offset.* = @min(new_offset, max_offset);
                     }
                 },
                 else => {},
             }
 
-            return body;
+            // Return the body, i.e. the area without the scroll bar.
+            return area.child(.{
+                .width = area.width -| 1,
+            });
         }
 
         pub fn window(self: *Self, id: WidgetId, win: vaxis.Window, opts: WindowOptions) vaxis.Window {
@@ -394,15 +455,20 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             if (self.mouse_focused_widget == id) switch (self.current_event) {
                 .mouse_focus => |mouse| {
                     if (top_border.hasMouse(mouse)) |_| {
-                        self.widget_being_dragged = id;
+                        self.widget_being_dragged = .{ .external = id };
                     }
                     if (mouse.mods.alt == true) {
                         if (window_widget.hasMouse(mouse)) |_|
-                            self.widget_being_dragged = id;
+                            self.widget_being_dragged = .{ .external = id };
                     }
                 },
                 .mouse => |mouse| handle_drag: {
-                    if (self.widget_being_dragged == id and mouse.button == .left and mouse.type == .drag) {
+                    const is_widget_being_dragged = if (self.widget_being_dragged) |w| switch (w) {
+                        .internal => |_| false,
+                        .external => |widget_id| id == widget_id,
+                    } else false;
+
+                    if (is_widget_being_dragged and mouse.button == .left and mouse.type == .drag) {
                         if (self.last_mouse) |last_mouse| {
                             if (mouse.col == last_mouse.col and mouse.row == last_mouse.row) break :handle_drag;
 
@@ -417,7 +483,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                         }
                     }
 
-                    if (self.widget_being_dragged == id and mouse.button == .left and mouse.type == .release)
+                    if (is_widget_being_dragged and mouse.button == .left and mouse.type == .release)
                         self.widget_being_dragged = null;
                 },
                 else => {},
@@ -593,6 +659,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                         .height = 5,
                         .border = .{ .where = .all },
                     });
+                    dbg_win.clear();
 
                     self.text(dbg_win, .{
                         .x = dbg_win.width -| @as(u16, @truncate(last_cursor_text.len)),
