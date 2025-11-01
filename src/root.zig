@@ -3,7 +3,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
         const Self = @This();
 
         const InternalElement = enum {
-            scroll_thumb,
+            v_scroll_thumb,
+            h_scroll_thumb,
         };
 
         const Id = union(enum) {
@@ -109,7 +110,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             content_height: usize,
             content_width: usize,
             /// how far down you've scrolled in rows.
-            content_offset: *usize,
+            v_content_offset: *usize,
+            h_content_offset: *usize,
         };
 
         const PaddingOpts = union(enum) {
@@ -293,77 +295,155 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                 .height = opts.height orelse parent.height,
             });
 
-            const thumb_height = area.height * area.height / opts.content_height;
-            const thumb_offset = opts.content_offset.* * area.height / opts.content_height;
+            const has_vertical_bar = area.height < opts.content_height;
+            const has_horizontal_bar = area.width < opts.content_width;
 
-            const thumb = area.child(.{
-                .x_off = area.width -| 1,
-                .y_off = @intCast(thumb_offset),
-                .width = 1,
-                .height = @intCast(@max(thumb_height, 1)),
-            });
+            if (!has_vertical_bar and !has_horizontal_bar) return area;
 
-            const thumb_grapheme = switch (self.current_event) {
-                .mouse => |mouse| if (thumb.hasMouse(mouse)) |_| "█" else "▐",
-                else => "▐",
-            };
+            if (has_vertical_bar) {
+                const v_thumb_height = area.height * area.height / opts.content_height;
+                const v_thumb_offset = opts.v_content_offset.* * area.height / opts.content_height;
 
-            thumb.fill(.{ .char = .{ .grapheme = thumb_grapheme } });
+                const v_thumb = area.child(.{
+                    .x_off = area.width -| 1,
+                    .y_off = @intCast(v_thumb_offset),
+                    .width = 1,
+                    .height = @intCast(@max(v_thumb_height, 1)),
+                });
 
-            switch (self.current_event) {
-                .mouse_focus => |mouse| {
-                    if (area.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
-                    if (thumb.hasMouse(mouse)) |_| self.widget_being_dragged = .{
-                        .internal = .{ .widget = id, .element = .scroll_thumb },
-                    };
-                },
-                .mouse => |mouse| if (self.mouse_focused_widget == id) handle_scroll: {
-                    const max_offset = opts.content_height -| 1;
+                const v_thumb_grapheme = switch (self.current_event) {
+                    .mouse => |mouse| if (v_thumb.hasMouse(mouse)) |_| "█" else "▐",
+                    else => "▐",
+                };
 
-                    if (mouse.button == .wheel_up and mouse.type == .press) {
-                        opts.content_offset.* -|= 1;
-                    }
-                    if (mouse.button == .wheel_down and mouse.type == .press) {
+                v_thumb.fill(.{ .char = .{ .grapheme = v_thumb_grapheme } });
+
+                switch (self.current_event) {
+                    .mouse_focus => |mouse| {
+                        if (area.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                        if (v_thumb.hasMouse(mouse)) |_| self.widget_being_dragged = .{
+                            .internal = .{ .widget = id, .element = .v_scroll_thumb },
+                        };
+                    },
+                    .mouse => |mouse| if (self.mouse_focused_widget == id) handle_scroll: {
                         // We always want at least 1 row of the content to be visible.
-                        const new_offset = opts.content_offset.* +| 1;
-                        opts.content_offset.* = @min(new_offset, max_offset);
-                    }
+                        const max_offset = opts.content_height -| 1;
 
-                    const is_thumb_being_dragged = if (self.widget_being_dragged) |w| switch (w) {
-                        .external => false,
-                        .internal => |widget| self.mouse_focused_widget == id and
-                            widget.widget == id and
-                            widget.element == .scroll_thumb,
-                    } else false;
+                        if (mouse.button == .wheel_up and mouse.type == .press) {
+                            opts.v_content_offset.* -|= 1;
+                        }
+                        if (mouse.button == .wheel_down and mouse.type == .press) {
+                            const new_offset = opts.v_content_offset.* +| 1;
+                            opts.v_content_offset.* = @min(new_offset, max_offset);
+                        }
 
-                    // Handle dragging the scroll thumb if appropriate
-                    if (!is_thumb_being_dragged or mouse.button != .left or mouse.type != .drag)
-                        break :handle_scroll;
-                    if (self.last_mouse) |last_mouse| {
-                        const step_size = @max(opts.content_height / area.height, 1);
+                        const is_thumb_being_dragged = if (self.widget_being_dragged) |w| switch (w) {
+                            .external => false,
+                            .internal => |widget| self.mouse_focused_widget == id and
+                                widget.widget == id and
+                                widget.element == .v_scroll_thumb,
+                        } else false;
 
-                        const dragging_down = mouse.row > last_mouse.row;
+                        // Handle dragging the scroll thumb if appropriate
+                        if (!is_thumb_being_dragged or mouse.button != .left or mouse.type != .drag)
+                            break :handle_scroll;
+                        if (self.last_mouse) |last_mouse| {
+                            const step_size = @max(opts.content_height / area.height, 1);
 
-                        const mouse_movement = if (dragging_down)
-                            mouse.row -| last_mouse.row
-                        else
-                            last_mouse.row -| mouse.row;
+                            const dragging_down = mouse.row > last_mouse.row;
 
-                        const new_offset = if (dragging_down)
-                            opts.content_offset.* +| (mouse_movement * step_size)
-                        else
-                            opts.content_offset.* -| (mouse_movement * step_size);
+                            const mouse_movement = if (dragging_down)
+                                mouse.row -| last_mouse.row
+                            else
+                                last_mouse.row -| mouse.row;
 
-                        opts.content_offset.* = @min(new_offset, max_offset);
-                    }
-                },
-                else => {},
+                            const new_offset = if (dragging_down)
+                                opts.v_content_offset.* +| (mouse_movement * step_size)
+                            else
+                                opts.v_content_offset.* -| (mouse_movement * step_size);
+
+                            opts.v_content_offset.* = @min(new_offset, max_offset);
+                        }
+                    },
+                    else => {},
+                }
             }
 
-            // Return the body, i.e. the area without the scroll bar.
-            return area.child(.{
-                .width = area.width -| 1,
-            });
+            if (has_horizontal_bar) {
+                const h_thumb_width = area.width * area.width / opts.content_width;
+                const h_thumb_offset = opts.h_content_offset.* * area.width / opts.content_width;
+
+                const h_thumb = area.child(.{
+                    .x_off = @intCast(h_thumb_offset),
+                    .y_off = area.height -| 1,
+                    .width = @intCast(@max(h_thumb_width, 1)),
+                    .height = 1,
+                });
+
+                const h_thumb_grapheme = switch (self.current_event) {
+                    .mouse => |mouse| if (h_thumb.hasMouse(mouse)) |_| "▄" else "▂",
+                    else => "▂",
+                };
+
+                h_thumb.fill(.{ .char = .{ .grapheme = h_thumb_grapheme } });
+
+                switch (self.current_event) {
+                    .mouse_focus => |mouse| {
+                        if (area.hasMouse(mouse)) |_| self.mouse_focused_widget = id;
+                        if (h_thumb.hasMouse(mouse)) |_| self.widget_being_dragged = .{
+                            .internal = .{ .widget = id, .element = .h_scroll_thumb },
+                        };
+                    },
+                    .mouse => |mouse| if (self.mouse_focused_widget == id) handle_scroll: {
+                        // We always want at least 1 column of the content to be visible.
+                        const max_offset = opts.content_width -| 1;
+
+                        // NOTE: Mouse movement inverted, maybe that shouldn't be the case on Windows?
+                        if (mouse.button == .wheel_right and mouse.type == .press) {
+                            opts.h_content_offset.* -|= 1;
+                        }
+                        if (mouse.button == .wheel_left and mouse.type == .press) {
+                            const new_offset = opts.h_content_offset.* +| 1;
+                            opts.h_content_offset.* = @min(new_offset, max_offset);
+                        }
+
+                        const is_thumb_being_dragged = if (self.widget_being_dragged) |w| switch (w) {
+                            .external => false,
+                            .internal => |widget| self.mouse_focused_widget == id and
+                                widget.widget == id and
+                                widget.element == .h_scroll_thumb,
+                        } else false;
+
+                        // Handle dragging the scroll thumb if appropriate
+                        if (!is_thumb_being_dragged or mouse.button != .left or mouse.type != .drag)
+                            break :handle_scroll;
+                        if (self.last_mouse) |last_mouse| {
+                            const step_size = @max(opts.content_width / area.width, 1);
+
+                            const dragging_right = mouse.col > last_mouse.col;
+
+                            const mouse_movement = if (dragging_right)
+                                mouse.col -| last_mouse.col
+                            else
+                                last_mouse.col -| mouse.col;
+
+                            const new_offset = if (dragging_right)
+                                opts.h_content_offset.* +| (mouse_movement * step_size)
+                            else
+                                opts.h_content_offset.* -| (mouse_movement * step_size);
+
+                            opts.h_content_offset.* = @min(new_offset, max_offset);
+                        }
+                    },
+                    else => {},
+                }
+            }
+
+            // Return the body, i.e. the area without the scroll bars.
+
+            const body_width = if (has_vertical_bar) area.width -| 1 else area.width;
+            const body_height = if (has_horizontal_bar) area.height -| 1 else area.height;
+            return area.child(.{ .width = body_width, .height = body_height });
         }
 
         pub fn window(self: *Self, id: WidgetId, win: vaxis.Window, opts: WindowOptions) vaxis.Window {

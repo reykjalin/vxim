@@ -36,7 +36,8 @@ const State = struct {
     open_menu: ?Menu = null,
     open_window: ?Window = null,
     about_window_pos: struct { x: u16, y: u16 } = .{ .x = 0, .y = 1 },
-    scroll_offset: usize = 0,
+    v_scroll_offset: usize = 0,
+    h_scroll_offset: usize = 0,
 };
 
 var state: State = .{};
@@ -115,23 +116,29 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
             .x = &scroll_window_pos.x,
             .y = &scroll_window_pos.y,
             .height = 12,
-            .width = 20,
+            .width = 22,
             .title = "Scroll demo",
         });
+        const content_height = 50;
         const scroll_body = ctx.vxim.scrollArea(.ScrollDemoContent, scroll_window, .{
-            .content_height = 50,
-            .content_width = 10,
-            .content_offset = &state.scroll_offset,
+            .content_height = content_height,
+            .content_width = 30,
+            .v_content_offset = &state.v_scroll_offset,
+            .h_content_offset = &state.h_scroll_offset,
         });
 
         // It's sufficient to draw from the top of the scroll area.
-        for (state.scroll_offset..50) |i| {
+        for (state.v_scroll_offset..content_height) |i| {
             // No need to draw outside the scroll area.
-            if (i > state.scroll_offset + scroll_body.height) break;
+            if (i > state.v_scroll_offset + scroll_body.height) break;
+
+            const text = try std.fmt.allocPrint(ctx.vxim.arena(), "line: {d}", .{i + 1});
+
+            if (text.len <= state.h_scroll_offset) continue;
 
             ctx.vxim.text(scroll_body, .{
-                .y = @as(u16, @intCast(i -| state.scroll_offset)),
-                .text = try std.fmt.allocPrint(ctx.vxim.arena(), "line: {d}", .{i + 1}),
+                .y = @as(u16, @intCast(i -| state.v_scroll_offset)),
+                .text = text[state.h_scroll_offset..],
             });
         }
     }
