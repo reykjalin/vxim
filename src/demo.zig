@@ -36,6 +36,8 @@ const State = struct {
     open_menu: ?Menu = null,
     open_window: ?Window = null,
     about_window_pos: struct { x: u16, y: u16 } = .{ .x = 0, .y = 1 },
+    counter_window_pos: struct { x: u16, y: u16 } = .{ .x = 30, .y = 10 },
+    scroll_window_pos: struct { x: u16, y: u16 } = .{ .x = 4, .y = 2 },
     v_scroll_offset: usize = 0,
     h_scroll_offset: usize = 0,
 };
@@ -75,22 +77,21 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
     ctx.root_win.clear();
 
-    // Main section of the app.
+    // Counter window.
     {
-        const modal_width = @min(40, ctx.root_win.width);
+        const modal_width = @min(25, ctx.root_win.width);
         const modal_height = @min(7, ctx.root_win.height);
-        var x = ctx.root_win.width / 2 -| modal_width / 2;
-        var y = ctx.root_win.height / 2 -| modal_height / 2;
         const modal = ctx.vxim.window(.CounterModal, ctx.root_win, .{
             .width = modal_width,
             .height = modal_height,
-            .x = &x,
-            .y = &y,
+            .x = &state.counter_window_pos.x,
+            .y = &state.counter_window_pos.y,
+            .title = "Counter demo",
         });
         const button_text = "Click Me!";
 
         const button_x: u16 =
-            (modal_width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2);
+            (modal_width / 2) -| ((@as(u16, @truncate(button_text.len)) + 2) / 2) -| 1;
         const button_y: u16 = (modal_height / 2);
 
         const button_action =
@@ -103,7 +104,7 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
         if (button_action == .clicked) state.clicks +|= 1;
 
         const text = try std.fmt.allocPrint(ctx.vxim.arena(), "Clicks: {d}", .{state.clicks});
-        const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2);
+        const text_x: u16 = (modal_width / 2) -| (@as(u16, @truncate(text.len)) / 2) -| 1;
         const text_y: u16 = (modal_height / 2) -| 2;
 
         ctx.vxim.text(modal, .{ .text = text, .x = text_x, .y = text_y, .allow_selection = true });
@@ -111,10 +112,9 @@ pub fn update(ctx: Vxim.UpdateContext) anyerror!Vxim.UpdateResult {
 
     // Scroll demo
     {
-        var scroll_window_pos: struct { x: u16, y: u16 } = .{ .x = 4, .y = 2 };
         const scroll_window = ctx.vxim.window(.ScrollDemoWindow, ctx.root_win, .{
-            .x = &scroll_window_pos.x,
-            .y = &scroll_window_pos.y,
+            .x = &state.scroll_window_pos.x,
+            .y = &state.scroll_window_pos.y,
             .height = 12,
             .width = 22,
             .title = "Scroll demo",

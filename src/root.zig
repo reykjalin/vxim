@@ -520,16 +520,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
             if (!has_title) return inner_window;
 
-            // Otherwise, include the title bar.
-
-            const title_bar = window_widget.child(.{
-                .x_off = 1,
-                .width = window_widget.width -| 2,
-                .height = 1,
-            });
-
-            self.text(title_bar, .{ .text = opts.title });
-
             // Drag handling
 
             if (self.mouse_focused_widget == id) switch (self.current_event) {
@@ -568,6 +558,16 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                 },
                 else => {},
             };
+
+            // Otherwise, include the title bar.
+
+            const title_bar = window_widget.child(.{
+                .x_off = 1,
+                .width = window_widget.width -| 2,
+                .height = 1,
+            });
+
+            self.text(title_bar, .{ .text = opts.title });
 
             return inner_window;
         }
