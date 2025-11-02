@@ -774,4 +774,4 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
 const std = @import("std");
 const builtin = @import("builtin");
-const vaxis = @import("vaxis");
+pub const vaxis = @import("vaxis");
