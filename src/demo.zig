@@ -60,6 +60,8 @@ pub fn main() !void {
     var vx: Vxim = .init(gpa);
     defer vx.deinit(gpa);
 
+    try vx.enterAltScreen();
+
     try vx.startLoop(gpa, update);
 }
 

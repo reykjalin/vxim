@@ -162,6 +162,15 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             return self._arena_state.allocator();
         }
 
+        pub fn enterAltScreen(self: *Self) !void {
+            try self._vx.enterAltScreen(self._tty.writer());
+            try self._vx.queryTerminal(self._tty.writer(), 1 * std.time.ns_per_s);
+        }
+
+        pub fn setMouseMode(self: *Self, mouse_mode: bool) !void {
+            try self._vx.setMouseMode(self._tty.writer(), mouse_mode);
+        }
+
         pub fn button(self: *Self, id: WidgetId, win: vaxis.Window, opts: ButtonOptions) ButtonAction {
             const button_widget = win.child(.{
                 .x_off = opts.x,
@@ -655,11 +664,6 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
             gpa: std.mem.Allocator,
             updateFn: fn (ctx: UpdateContext) anyerror!UpdateResult,
         ) !void {
-            try self._vx.enterAltScreen(self._tty.writer());
-            try self._vx.queryTerminal(self._tty.writer(), 1 * std.time.ns_per_s);
-
-            try self._vx.setMouseMode(self._tty.writer(), true);
-
             main_loop: while (true) {
                 defer _ = self._arena_state.reset(.retain_capacity);
 
