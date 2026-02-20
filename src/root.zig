@@ -19,6 +19,8 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
 
         widget_being_dragged: ?Id = null,
 
+        show_debug_ui: bool = builtin.mode == .Debug,
+
         _tty_buffer: []u8 = undefined,
         _tty: *vaxis.Tty,
         _vx: *vaxis.Vaxis,
@@ -712,7 +714,7 @@ pub fn Vxim(comptime Event: type, comptime WidgetId: type) type {
                 }
 
                 // Debug info
-                if (builtin.mode == .Debug) {
+                if (self.show_debug_ui) {
                     const last_cursor_text = try std.fmt.allocPrint(
                         self.arena(),
                         "Last cursor: ({d},{d}) ({?}) ({?})",
